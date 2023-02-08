@@ -86,7 +86,7 @@ net.fc = nn.Linear(num_ftrs, 10)
 net = net.to(device)
 
 if device == 'cuda':
-    net = torch.nn.DataParallel(net, device_ids=[0])
+    net = torch.nn.DataParallel(net)
     cudnn.benchmark = True
 
 if args.resume:
