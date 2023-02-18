@@ -116,12 +116,20 @@ accuracy_list=[]
 result_list=[]
 clean_corr=0
 
+upper_lower_record = np.zeros((2, 10, 2))
+flattened = np.zeros((3, 10, 10))
+flattened_softmax = np.zeros((3, 10, 10))
+count_total = np.zeros((2, 10))
+count1 = 0
+count0 = 0
+count2 = 0
+percentage_chart = np.zeros(3)
 for data,labels in tqdm(val_loader):
     
     data=data.to(device)
     labels = labels.numpy()
     output_clean = model(data).detach().cpu().numpy() # logits
-    #output_clean = softmax(output_clean,axis=-1) # confidence
+    # output_clean = softmax(output_clean,axis=-1) # confidence
     #output_clean = (output_clean > 0.2).astype(float) # predictions with confidence threshold
 
     #note: the provable analysis of robust masking is cpu-intensive and can take some time to finish
@@ -129,7 +137,28 @@ for data,labels in tqdm(val_loader):
     for i in range(len(labels)):
         if args.m:#robust masking
             local_feature = output_clean[i]
-            result = provable_masking(local_feature,labels[i],thres=args.thres,window_shape=[window_size,window_size])
+            result, lower, upper = provable_masking(local_feature,labels[i],thres=args.thres,window_shape=[window_size,window_size])
+            if result == 1:
+                upper_lower_record[0][labels[i]][0] += lower 
+                upper_lower_record[0][labels[i]][1] += upper 
+                count_total[0][labels[i]] += 1
+                # flattened[1][labels[i]] += np.mean(output_clean[i],axis=(0,1))
+                # flattened_softmax[1][labels[i]] += softmax(np.mean(output_clean[i],axis=(0,1))) 
+                # percentage = np.max(output_clean[i], 2)
+                # print(percentage)
+                count1 += 1
+            elif result == 2:
+                upper_lower_record[1][labels[i]][0] += lower 
+                upper_lower_record[1][labels[i]][1] += upper 
+                count_total[1][labels[i]] += 1
+                # flattened[2][labels[i]] += np.mean(output_clean[i],axis=(0,1)) 
+                # flattened_softmax[2][labels[i]] += softmax(np.mean(output_clean[i],axis=(0,1))) 
+                # percentage = np.max(output_clean[i], 2)
+                count2 += 1
+            else:
+                # flattened[0][labels[i]] += np.mean(output_clean[i],axis=(0,1)) 
+                # flattened_softmax[0][labels[i]] += softmax(np.mean(output_clean[i],axis=(0,1))) 
+                count0 += 1
             result_list.append(result)
             clean_pred = masking_defense(local_feature,thres=args.thres,window_shape=[window_size,window_size])
             clean_corr += clean_pred == labels[i]
@@ -146,9 +175,27 @@ for data,labels in tqdm(val_loader):
 
 
 cases,cnt=np.unique(result_list,return_counts=True)
+for i in range(10):
+    upper_lower_record[0][i] /= count_total[0][i]
+    upper_lower_record[1][i] /= count_total[1][i]
+
+print("upper_lower_record", upper_lower_record)
 print("Provable robust accuracy:",cnt[-1]/len(result_list) if len(cnt)==3 else 0)
 print("Clean accuracy with defense:",clean_corr/len(result_list))
 print("Clean accuracy without defense:",np.sum(accuracy_list)/len(val_dataset))
 print("------------------------------")
 print("Provable analysis cases (0: incorrect prediction; 1: vulnerable; 2: provably robust):",cases)
 print("Provable analysis breakdown",cnt/len(result_list))
+
+import pandas as pd
+df = pd.DataFrame(upper_lower_record[0])
+df.to_csv("upper_lower_record_attack_possible.csv")
+df = pd.DataFrame(upper_lower_record[1])
+df.to_csv("upper_lower_record_certified.csv")
+# np.set_printoptions(precision=3)
+# print("flattened", flattened[1] / count1)
+# df = pd.DataFrame(flattened[1] / count1)
+# df.to_csv("flattened.csv")
+# print("softmax flattened", flattened_softmax[1] / count1)
+# df = pd.DataFrame(flattened_softmax[1] / count1)
+# df.to_csv("flattened_softmax.csv")

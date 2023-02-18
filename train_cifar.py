@@ -72,13 +72,13 @@ else:
 # Model
 print('==> Building model..')
 
-pth_path = './checkpoints/bagnet17_192_cifar2.pth'
+pth_path = './checkpoints/bagnet17_192_cifar.pth'
 
-net = nets.bagnet.bagnet17(pretrained=True,clip_range=clip_range,aggregation='mean') #aggregation = 'mean' for vanilla training
+net = nets.bagnet.bagnet17(pretrained=False,clip_range=clip_range,aggregation='adv') #aggregation = 'mean' for vanilla training
 # net = nets.resnet.resnet50(pretrained=True)
 
-# for param in net.parameters():
-#    param.requires_grad = False
+for param in net.parameters():
+   param.requires_grad = True
 
 # Parameters of newly constructed modules have requires_grad=True by default
 num_ftrs = net.fc.in_features
@@ -86,7 +86,7 @@ net.fc = nn.Linear(num_ftrs, 10)
 net = net.to(device)
 
 if device == 'cuda':
-    net = torch.nn.DataParallel(net)
+    net = torch.nn.DataParallel(net, device_ids=[0, 1])
     cudnn.benchmark = True
 
 if args.resume:
@@ -101,6 +101,18 @@ if args.resume:
 criterion = nn.CrossEntropyLoss()
 optimizer = optim.SGD(net.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
 
+def myCustomLoss(my_outputs, my_labels, loader):
+    #specifying the batch size
+    my_batch_size = my_outputs.size()[0]
+    #calculating the log of softmax values           
+    my_outputs = F.log_softmax(my_outputs, dim=1)
+    #choose the second largest evidence
+    my_outputs = torch.kthvalue(my_outputs, 9, 1)[0]
+    # my_outputs = my_outputs[range(my_batch_size), my_labels]
+    #returning the results
+    # no need for negative sign
+    return torch.sum(my_outputs)/len(loader)
+
 # Training
 def train(epoch):
     print('\nEpoch: %d' % epoch)
@@ -113,7 +125,7 @@ def train(epoch):
         optimizer.zero_grad()
         outputs = net(inputs, targets)
         #outputs = net(inputs)
-        loss = criterion(outputs, targets)
+        loss = criterion(outputs, targets) + 0.1 * myCustomLoss(outputs, targets, trainloader)
         loss.backward()
         optimizer.step()
 
@@ -137,7 +149,7 @@ def test(epoch):
             inputs, targets = inputs.to(device), targets.to(device)
             # outputs = net(inputs)
             outputs = net(inputs, targets)
-            loss = criterion(outputs, targets)
+            loss = criterion(outputs, targets) + 0.1 * myCustomLoss(outputs, targets, testloader)
 
             test_loss += loss.item()
             _, predicted = outputs.max(1)

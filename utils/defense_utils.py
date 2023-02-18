@@ -77,7 +77,7 @@ def provable_masking(local_feature,label,clipping=-1,thres=0.,window_shape=[6,6]
 	global_pred = pred_list[-1]
 
 	if global_pred != label: # clean prediction is incorrect
-		return 0
+		return 0, 0, 0
 
 	local_feature_pred = local_feature[:,:,global_pred]
 
@@ -94,6 +94,11 @@ def provable_masking(local_feature,label,clipping=-1,thres=0.,window_shape=[6,6]
 
 	idx = np.ones([num_cls],dtype=bool)
 	idx[global_pred]=False
+	result = 2
+	max_diff = float('inf') # if attack possible, we want to record the window with largest between lower and upper
+	# otherwise, we want the window with smallest between lower and upper 
+	lower = 0
+	upper = 0
 	for x in range(0,num_window_x):
 		for y in range(0,num_window_y):
 
@@ -126,13 +131,28 @@ def provable_masking(local_feature,label,clipping=-1,thres=0.,window_shape=[6,6]
 				global_feature_masked[global_pred]-=max_window_sum_pred
 			else:
 				global_feature_masked[global_pred]-=overlap_window_max_sum
-				
 
 			# determine if an attack is possible
 			if np.argsort(global_feature_masked,kind='stable')[-1]!=label: 
-				return 1
+				# print("Attack Possible")
+				# print("lower bound", global_feature_masked[global_pred], "upper bound", np.max(global_feature_masked))
+				result = 1
+				# return 1, global_feature_masked[global_pred], np.max(global_feature_masked)
+				if global_feature_masked[global_pred] - np.max(global_feature_masked) < max_diff:
+					max_diff = global_feature_masked[global_pred] - np.max(global_feature_masked)
+					lower = global_feature_masked[global_pred]
+					upper = np.max(global_feature_masked)
+			elif result == 2:
+				second_largest = np.argsort(global_feature_masked,kind='stable')[-2]
+				if global_feature_masked[global_pred] - global_feature_masked[second_largest] < max_diff:
+					max_diff = global_feature_masked[global_pred] - global_feature_masked[second_largest]
+					lower = global_feature_masked[global_pred]
+					upper = global_feature_masked[second_largest]
 
-	return 2 #provable robustness
+	
+	# print("lower bound", global_feature_masked[global_pred], "upper bound", global_feature_masked[second_largest])
+	# return 2, global_feature_masked[global_pred], global_feature_masked[second_largest]#provable robustness
+	return result, lower, upper#provable robustness
 
 
 
