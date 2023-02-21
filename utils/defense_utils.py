@@ -77,7 +77,7 @@ def provable_masking(local_feature,label,clipping=-1,thres=0.,window_shape=[6,6]
 	global_pred = pred_list[-1]
 
 	if global_pred != label: # clean prediction is incorrect
-		return 0, 0, 0
+		return 0, 0, 0, 0, 0, 0
 
 	local_feature_pred = local_feature[:,:,global_pred]
 
@@ -142,17 +142,22 @@ def provable_masking(local_feature,label,clipping=-1,thres=0.,window_shape=[6,6]
 					max_diff = global_feature_masked[global_pred] - np.max(global_feature_masked)
 					lower = global_feature_masked[global_pred]
 					upper = np.max(global_feature_masked)
+					wrong_image_masked = in_window_sum_tensor[x,y,np.argsort(global_feature_masked,kind='stable')[-1]].sum()
+					correct_mask = in_window_sum_tensor[x,y,global_pred].sum()
+					window_y_star = max_window_sum_pred
 			elif result == 2:
 				second_largest = np.argsort(global_feature_masked,kind='stable')[-2]
 				if global_feature_masked[global_pred] - global_feature_masked[second_largest] < max_diff:
 					max_diff = global_feature_masked[global_pred] - global_feature_masked[second_largest]
 					lower = global_feature_masked[global_pred]
 					upper = global_feature_masked[second_largest]
+					wrong_image_masked = in_window_sum_tensor[x,y,second_largest].sum()
+					correct_mask = in_window_sum_tensor[x,y,global_pred].sum()
+					window_y_star = max_window_sum_pred
 
-	
 	# print("lower bound", global_feature_masked[global_pred], "upper bound", global_feature_masked[second_largest])
 	# return 2, global_feature_masked[global_pred], global_feature_masked[second_largest]#provable robustness
-	return result, lower, upper#provable robustness
+	return result, lower, upper, wrong_image_masked, correct_mask, window_y_star #provable robustness
 
 
 

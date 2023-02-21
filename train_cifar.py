@@ -72,9 +72,9 @@ else:
 # Model
 print('==> Building model..')
 
-pth_path = './checkpoints/bagnet17_192_cifar.pth'
+pth_path = './checkpoints/0.01_times_all_penalize_bagnet17_192_cifar.pth'
 
-net = nets.bagnet.bagnet17(pretrained=False,clip_range=clip_range,aggregation='adv') #aggregation = 'mean' for vanilla training
+net = nets.bagnet.bagnet17(pretrained=False,clip_range=clip_range,aggregation='mean') #aggregation = 'mean' for vanilla training
 # net = nets.resnet.resnet50(pretrained=True)
 
 for param in net.parameters():
@@ -106,12 +106,14 @@ def myCustomLoss(my_outputs, my_labels, loader):
     my_batch_size = my_outputs.size()[0]
     #calculating the log of softmax values           
     my_outputs = F.log_softmax(my_outputs, dim=1)
-    #choose the second largest evidence
-    my_outputs = torch.kthvalue(my_outputs, 9, 1)[0]
+    # choose the second largest evidence
+    # my_outputs = torch.kthvalue(my_outputs, 9, 1)[0]
+    # otherwise choose all the except highest
+    largest_sum = torch.kthvalue(my_outputs, 10, 1)[0].sum()
     # my_outputs = my_outputs[range(my_batch_size), my_labels]
     #returning the results
     # no need for negative sign
-    return torch.sum(my_outputs)/len(loader)
+    return (torch.sum(my_outputs) - largest_sum) / len(loader)
 
 # Training
 def train(epoch):
@@ -125,7 +127,8 @@ def train(epoch):
         optimizer.zero_grad()
         outputs = net(inputs, targets)
         #outputs = net(inputs)
-        loss = criterion(outputs, targets) + 0.1 * myCustomLoss(outputs, targets, trainloader)
+        loss = criterion(outputs, targets) + 0.01 * myCustomLoss(outputs, targets, trainloader)
+        #+ 0.1 * myCustomLoss(outputs, targets, trainloader)
         loss.backward()
         optimizer.step()
 
@@ -149,7 +152,7 @@ def test(epoch):
             inputs, targets = inputs.to(device), targets.to(device)
             # outputs = net(inputs)
             outputs = net(inputs, targets)
-            loss = criterion(outputs, targets) + 0.1 * myCustomLoss(outputs, targets, testloader)
+            loss = criterion(outputs, targets) + 0.01 * myCustomLoss(outputs, targets, testloader)
 
             test_loss += loss.item()
             _, predicted = outputs.max(1)

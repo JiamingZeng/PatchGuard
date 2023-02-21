@@ -1,9 +1,10 @@
+import cv2
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 import torch.backends.cudnn as cudnn
-from  torchvision import datasets, transforms
+from  torchvision import datasets, transforms, utils
 
 import nets.bagnet
 import nets.resnet
@@ -124,6 +125,14 @@ count1 = 0
 count0 = 0
 count2 = 0
 percentage_chart = np.zeros(3)
+wrong_images, correct_masks, window_y_ss = [], [], []
+
+invTrans = transforms.Compose([ transforms.Normalize(mean = [ 0., 0., 0. ],
+                                                     std = [ 1/0.2023, 1/0.1994, 1/0.2010 ]),
+                                transforms.Normalize(mean = [ -0.4914, -0.4822, -0.4465 ],
+                                                     std = [ 1., 1., 1. ]),
+                               ])
+
 for data,labels in tqdm(val_loader):
     
     data=data.to(device)
@@ -137,7 +146,7 @@ for data,labels in tqdm(val_loader):
     for i in range(len(labels)):
         if args.m:#robust masking
             local_feature = output_clean[i]
-            result, lower, upper = provable_masking(local_feature,labels[i],thres=args.thres,window_shape=[window_size,window_size])
+            result, lower, upper, wrong_image, correct_mask, window_y_s = provable_masking(local_feature,labels[i],thres=args.thres,window_shape=[window_size,window_size])
             if result == 1:
                 upper_lower_record[0][labels[i]][0] += lower 
                 upper_lower_record[0][labels[i]][1] += upper 
@@ -147,6 +156,8 @@ for data,labels in tqdm(val_loader):
                 # percentage = np.max(output_clean[i], 2)
                 # print(percentage)
                 count1 += 1
+                inv_tensor = invTrans(data[i])
+                utils.save_image(inv_tensor, "images/vunlerable_{}.png".format(count1))
             elif result == 2:
                 upper_lower_record[1][labels[i]][0] += lower 
                 upper_lower_record[1][labels[i]][1] += upper 
@@ -154,11 +165,17 @@ for data,labels in tqdm(val_loader):
                 # flattened[2][labels[i]] += np.mean(output_clean[i],axis=(0,1)) 
                 # flattened_softmax[2][labels[i]] += softmax(np.mean(output_clean[i],axis=(0,1))) 
                 # percentage = np.max(output_clean[i], 2)
+                # print(data[i].shape)
+                inv_tensor = invTrans(data[i])
+                utils.save_image(inv_tensor, "images/certified_{}.png".format(count2))
                 count2 += 1
             else:
                 # flattened[0][labels[i]] += np.mean(output_clean[i],axis=(0,1)) 
                 # flattened_softmax[0][labels[i]] += softmax(np.mean(output_clean[i],axis=(0,1))) 
                 count0 += 1
+            wrong_images.append(wrong_image)
+            correct_masks.append(correct_mask)
+            window_y_ss.append(window_y_s)
             result_list.append(result)
             clean_pred = masking_defense(local_feature,thres=args.thres,window_shape=[window_size,window_size])
             clean_corr += clean_pred == labels[i]
@@ -172,7 +189,8 @@ for data,labels in tqdm(val_loader):
             clean_corr += clean_pred == labels[i]   
     acc_clean = np.sum(np.argmax(np.mean(output_clean,axis=(1,2)),axis=1) == labels)
     accuracy_list.append(acc_clean)
-
+    if count1 + count2 > 30:
+        break
 
 cases,cnt=np.unique(result_list,return_counts=True)
 for i in range(10):
@@ -186,6 +204,21 @@ print("Clean accuracy without defense:",np.sum(accuracy_list)/len(val_dataset))
 print("------------------------------")
 print("Provable analysis cases (0: incorrect prediction; 1: vulnerable; 2: provably robust):",cases)
 print("Provable analysis breakdown",cnt/len(result_list))
+print(count_total)
+from matplotlib import pyplot as plt
+# Creating histogram
+fig, ax = plt.subplots(3, 1)
+ax[0].hist(wrong_images, bins = [0, 50, 100, 150, 200])
+ax[0].set_title("wrong image")
+ 
+# Show plot
+ax[1].hist(correct_masks, bins = [800, 1000, 1200, 1400, 1600])
+ax[1].set_title("correct image")
+
+ax[2].hist(window_y_ss, bins = [800, 1000, 1200, 1400, 1600])
+ax[2].set_title("window_y_star image")
+
+plt.savefig("all.png")
 
 import pandas as pd
 df = pd.DataFrame(upper_lower_record[0])
